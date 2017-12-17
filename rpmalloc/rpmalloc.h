@@ -116,6 +116,9 @@ rpposix_memalign(void **memptr, size_t alignment, size_t size);
 extern size_t
 rpmalloc_usable_size(void* ptr);
 
+extern void* rpmalloc_allocate_memory_external(size_t bytes);
+extern void rpmalloc_deallocate_memory_external(void* ptr);
+
 #ifdef __cplusplus
 }
 #endif

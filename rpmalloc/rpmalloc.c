@@ -1428,6 +1428,10 @@ void* _mark_heap_in_use(void* heap) {
 	return (void*)((size_t)heap | 1);
 }
 
+void* _unmark_heap_in_use(void* heap) {
+	return (void*)((size_t)heap & ~1);
+}
+
 void _acquire_heaps_lock()
 {
 	while (!atomic_cas_value(&_heaps_lock, 1, 0));
@@ -1490,7 +1494,7 @@ rpmalloc_thread_reset(void) {
 	_acquire_heaps_lock();
 	void* heap_ptr = atomic_load_ptr(&_memory_heaps[_memory_preferred_heap]);
 	assert(_is_heap_in_use(heap_ptr));
-	atomic_store_ptr(&_memory_heaps[_memory_preferred_heap], _mark_heap_in_use(heap_ptr));
+	atomic_store_ptr(&_memory_heaps[_memory_preferred_heap], _unmark_heap_in_use(heap_ptr));
 	_release_heaps_lock();
 
 	_memory_thread_heap = 0;
@@ -1694,7 +1698,9 @@ _memory_map(size_t page_count) {
 			}
 
 			if (span)
+			{
 				break;
+			}
 		}
 
 		if (should_release)
@@ -1714,6 +1720,7 @@ _memory_map(size_t page_count) {
 
 		segment->first_span = span;
 		atomic_store_ptr(&segment->next_segment, (void*)SINGLE_SEGMENT_MARKER);
+		
 		// Allocate a segment that will not be re-used
 		span->owner_segment = segment;
 	}
@@ -1749,13 +1756,13 @@ _memory_allocate_external(size_t bytes)
 	atomic_add32(&_mapped_pages, bytes / PAGE_SIZE);
 	atomic_add32(&_mapped_total, bytes / PAGE_SIZE);
 #endif
-	return VirtualAlloc(0, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+	return rpmalloc_allocate_memory_external(bytes);
 }
 
 static void
 _memory_deallocate_external(void* ptr)
 {
-	VirtualFree(ptr, 0, MEM_RELEASE);
+	rpmalloc_deallocate_memory_external(ptr);
 }
 
 static FORCEINLINE int
