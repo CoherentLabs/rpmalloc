@@ -230,9 +230,9 @@ void _release_segments_lock_write();
 #define SMALL_SIZE_LIMIT          (SMALL_CLASS_COUNT * SMALL_GRANULARITY)
 
 //! Granularity of a medium allocation block
-#define MEDIUM_GRANULARITY        64
+#define MEDIUM_GRANULARITY        32
 //! Medimum granularity shift count
-#define MEDIUM_GRANULARITY_SHIFT  6
+#define MEDIUM_GRANULARITY_SHIFT  5
 //! Number of medium block size classes
 #define MEDIUM_CLASS_COUNT        60
 //! Maximum size of a medium block
@@ -242,7 +242,7 @@ void _release_segments_lock_write();
 #define SIZE_CLASS_COUNT          (SMALL_CLASS_COUNT + MEDIUM_CLASS_COUNT)
 
 //! Number of large block size classes
-#define LARGE_CLASS_COUNT         16
+#define LARGE_CLASS_COUNT         4
 //! Maximum number of memory pages in a large block
 #define LARGE_MAX_PAGES           (SPAN_MAX_PAGE_COUNT * LARGE_CLASS_COUNT)
 //! Maximum size of a large block
