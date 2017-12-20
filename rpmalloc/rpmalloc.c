@@ -18,7 +18,7 @@
 // Presets, if none is defined it will default to performance priority
 //#define ENABLE_UNLIMITED_CACHE
 //#define DISABLE_CACHE
-//#define ENABLE_SPACE_PRIORITY_CACHE
+#define ENABLE_SPACE_PRIORITY_CACHE
 
 // Presets for cache limits
 #if defined(ENABLE_UNLIMITED_CACHE)
@@ -206,10 +206,10 @@ void _release_segments_lock_write();
 // Preconfigured limits and sizes
 
 //! Memory page size
-#define PAGE_SIZE                 4096
+#define PAGE_SIZE                 512
 
 //! Granularity of all memory page spans for small & medium block allocations
-#define SPAN_ADDRESS_GRANULARITY  65536
+#define SPAN_ADDRESS_GRANULARITY  8192
 //! Maximum size of a span of memory pages
 #define SPAN_MAX_SIZE             (SPAN_ADDRESS_GRANULARITY)
 //! Mask for getting the start of a span of memory pages
@@ -230,9 +230,9 @@ void _release_segments_lock_write();
 #define SMALL_SIZE_LIMIT          (SMALL_CLASS_COUNT * SMALL_GRANULARITY)
 
 //! Granularity of a medium allocation block
-#define MEDIUM_GRANULARITY        512
+#define MEDIUM_GRANULARITY        64
 //! Medimum granularity shift count
-#define MEDIUM_GRANULARITY_SHIFT  9
+#define MEDIUM_GRANULARITY_SHIFT  6
 //! Number of medium block size classes
 #define MEDIUM_CLASS_COUNT        60
 //! Maximum size of a medium block
@@ -242,7 +242,7 @@ void _release_segments_lock_write();
 #define SIZE_CLASS_COUNT          (SMALL_CLASS_COUNT + MEDIUM_CLASS_COUNT)
 
 //! Number of large block size classes
-#define LARGE_CLASS_COUNT         32
+#define LARGE_CLASS_COUNT         16
 //! Maximum number of memory pages in a large block
 #define LARGE_MAX_PAGES           (SPAN_MAX_PAGE_COUNT * LARGE_CLASS_COUNT)
 //! Maximum size of a large block
@@ -361,7 +361,6 @@ struct heap_t {
 	size_t       global_to_thread;
 #endif
 };
-_Static_assert(sizeof(heap_t) <= PAGE_SIZE * 2, "heap size mismatch");
 
 struct size_class_t {
 	//! Size of blocks in this class
@@ -895,7 +894,7 @@ _memory_allocate_heap(void) {
 	atomic_thread_fence_acquire();
 
 	//Map in pages for a new heap
-	heap = _memory_allocate_external(2 * PAGE_SIZE);
+	heap = _memory_allocate_external(sizeof(heap_t));
 	memset(heap, 0, sizeof(heap_t));
 
 	//Get a new heap ID
@@ -1560,9 +1559,17 @@ span_t* _get_span_from_segment(segment_t* new_segment) {
 	int slot = SPANS_PER_SEGMENT + 1;
 	while (slot == SPANS_PER_SEGMENT + 1) {
 		uint32_t slots = atomic_load32(&new_segment->free_markers);
+		#if SPANS_PER_SEGMENT == 32
 		if (slots == 0xFFFFFFFF) {
 			return 0; // It's full
 		}
+		#elif SPANS_PER_SEGMENT == 16
+		if (slots == 0x0000FFFF) {
+			return 0; // It's full
+		}
+		#else
+			#pragma error Unsupported spans per-segment
+		#endif
 		// Find a free slot
 		for (int b = 0; b < SPANS_PER_SEGMENT; ++b) {
 			const uint32_t bit_mask = (1 << b);
