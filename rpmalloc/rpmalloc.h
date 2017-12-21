@@ -15,9 +15,8 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace coherent_rpmalloc
+{
 
 #if defined(__clang__) || defined(__GNUC__)
 # define RPMALLOC_ATTRIBUTE __attribute__((__malloc__))
@@ -119,6 +118,4 @@ rpmalloc_usable_size(void* ptr);
 extern void* rpmalloc_allocate_memory_external(size_t bytes);
 extern void rpmalloc_deallocate_memory_external(void* ptr);
 
-#ifdef __cplusplus
 }
-#endif

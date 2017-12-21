@@ -13,6 +13,16 @@
 
 #include "rpmalloc.h"
 
+// REMOVE ME
+#include <Windows.h>
+
+#ifndef ATOMIC_HEADER_INCLUDED
+#include <atomic>
+#endif
+
+namespace coherent_rpmalloc
+{
+
 // Build time configurable limits
 
 // Presets, if none is defined it will default to performance priority
@@ -64,11 +74,6 @@
 #ifndef ENABLE_ASSERTS
 //! Enable asserts
 #define ENABLE_ASSERTS            0
-#endif
-
-#ifndef DEFINE_EXTERNAL_ALLOCATION_FUNCS
-//! Define the external allocation/deallocation functions
-#define DEFINE_EXTERNAL_ALLOCATION_FUNCS 1
 #endif
 
 // Platform and arch specifics
@@ -164,7 +169,7 @@ atomic_exchange_and_add64(atomic64_t* dst, int64_t add) {
 static FORCEINLINE int32_t
 atomic_incr32(atomic32_t* val) {
 #ifdef _MSC_VER
-	int32_t old = (int32_t)_InterlockedExchangeAdd((volatile long*)&val->nonatomic, 1);
+	int32_t old = (int32_t)InterlockedExchangeAdd((volatile long*)&val->nonatomic, 1);
 	return (old + 1);
 #else
 	return __sync_add_and_fetch(&val->nonatomic, 1);
@@ -174,7 +179,7 @@ atomic_incr32(atomic32_t* val) {
 static FORCEINLINE int32_t
 atomic_add32(atomic32_t* val, int32_t add) {
 #ifdef _MSC_VER
-	int32_t old = (int32_t)_InterlockedExchangeAdd((volatile long*)&val->nonatomic, add);
+	int32_t old = (int32_t)InterlockedExchangeAdd((volatile long*)&val->nonatomic, add);
 	return (old + add);
 #else
 	return __sync_add_and_fetch(&val->nonatomic, add);
@@ -659,7 +664,7 @@ use_active:
 		//Happy path, we have a span with at least one free block
 		span_t* span = heap->active_span[class_idx];
 		count_t offset = class_size * active_block->free_list;
-		uint32_t* block = pointer_offset(span, SPAN_HEADER_SIZE + offset);
+		uint32_t* block = static_cast<uint32_t*>(pointer_offset(span, SPAN_HEADER_SIZE + offset));
 		assert(span);
 
 		--active_block->free_count;
@@ -894,7 +899,7 @@ _memory_allocate_heap(void) {
 	atomic_thread_fence_acquire();
 
 	//Map in pages for a new heap
-	heap = _memory_allocate_external(sizeof(heap_t));
+	heap = static_cast<heap_t*>(_memory_allocate_external(sizeof(heap_t)));
 	memset(heap, 0, sizeof(heap_t));
 
 	//Get a new heap ID
@@ -1014,7 +1019,7 @@ _memory_deallocate_to_heap(heap_t* heap, span_t* span, void* p) {
 	}
 	++block_data->free_count;
 	//Span is not yet completely free, so add block to the linked list of free blocks
-	uint32_t* block = p;
+	uint32_t* block = static_cast<uint32_t*>(p);
 	*block = block_data->free_list;
 	count_t block_offset = (count_t)pointer_diff(block, span) - SPAN_HEADER_SIZE;
 	count_t block_idx = block_offset / (count_t)size_class->size;
@@ -1091,7 +1096,7 @@ _memory_deallocate_deferred(heap_t* heap, size_t size_class) {
 	do {
 		void* next = *(void**)p;
 		//Get span and check which type of block
-		span_t* span = (void*)((uintptr_t)p & SPAN_MASK);
+		span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 		if (span->size_class < SIZE_CLASS_COUNT) {
 			//Small/medium block
 			got_class |= (span->size_class == size_class);
@@ -1148,7 +1153,7 @@ _memory_deallocate(void* p) {
 		return;
 
 	//Grab the span (always at start of span, using 64KiB alignment)
-	span_t* span = (void*)((uintptr_t)p & SPAN_MASK);
+	span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 	int32_t heap_id = atomic_load32(&span->heap_id);
 	heap_t* heap = _memory_thread_heap;
 	//Check if block belongs to this heap or if deallocation should be deferred
@@ -1173,7 +1178,7 @@ static void*
 _memory_reallocate(void* p, size_t size, size_t oldsize, unsigned int flags) {
 	if (p) {
 		//Grab the span (always at start of span, using 64KiB alignment)
-		span_t* span = (void*)((uintptr_t)p & SPAN_MASK);
+		span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 		int32_t heap_id = atomic_load32(&span->heap_id);
 		if (heap_id) {
 			if (span->size_class < SIZE_CLASS_COUNT) {
@@ -1229,7 +1234,7 @@ _memory_reallocate(void* p, size_t size, size_t oldsize, unsigned int flags) {
 static size_t
 _memory_usable_size(void* p) {
 	//Grab the span (always at start of span, using 64KiB alignment)
-	span_t* span = (void*)((uintptr_t)p & SPAN_MASK);
+	span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 	int32_t heap_id = atomic_load32(&span->heap_id);
 	if (heap_id) {
 		if (span->size_class < SIZE_CLASS_COUNT) {
@@ -1405,11 +1410,11 @@ rpmalloc_finalize(void) {
 	// Free all segments
 	_acquire_segments_lock_write();
 
-	segment_t* head = atomic_load_ptr(&_segments_head);
+	segment_t* head = static_cast<segment_t*>(atomic_load_ptr(&_segments_head));
 	segment_t* next;
 	while (head)
 	{
-		next = atomic_load_ptr(&head->next_segment);
+		next = static_cast<segment_t*>(atomic_load_ptr(&head->next_segment));
 		_memory_deallocate_external(head);
 		head = next;
 	}
@@ -1548,7 +1553,7 @@ void _publish_segment_on_global_list(segment_t* new_segment)
 {
 	_acquire_segments_lock_write();
 
-	segment_t* head = atomic_load_ptr(&_segments_head);
+	segment_t* head = static_cast<segment_t*>(atomic_load_ptr(&_segments_head));
 	atomic_store_ptr(&new_segment->next_segment, head);
 	atomic_store_ptr(&_segments_head, new_segment);
 
@@ -1585,7 +1590,7 @@ span_t* _get_span_from_segment(segment_t* new_segment) {
 			}
 		}
 	}
-	span_t* span = pointer_offset(new_segment->first_span, slot * SPAN_MAX_SIZE);
+	span_t* span = static_cast<span_t*>(pointer_offset(new_segment->first_span, slot * SPAN_MAX_SIZE));
 
 	span->owner_segment = new_segment;
 	// Calculate the address of the slot
@@ -1614,11 +1619,11 @@ void _return_span_to_segment(segment_t* segment, span_t* span) {
 
 		// Find the segment and delete it (if still empty)
 		segment_t* prev = 0;
-		segment_t* head = atomic_load_ptr(&_segments_head);
+		segment_t* head = static_cast<segment_t*>(atomic_load_ptr(&_segments_head));
 		while (head && head != segment)
 		{
 			prev = head;
-			head = atomic_load_ptr(&head->next_segment);
+			head = static_cast<segment_t*>(atomic_load_ptr(&head->next_segment));
 		}
 
 		if (head)
@@ -1670,19 +1675,19 @@ _memory_map(size_t page_count) {
 		int should_release = 1;
 		_acquire_segments_lock_read();
 		// Look for a span of correct size within the cache
-		segment_t* global_segment = atomic_load_ptr(&_segments_head);
+		segment_t* global_segment = static_cast<segment_t*>(atomic_load_ptr(&_segments_head));
 		for (;;)
 		{
 			if (!global_segment)
 			{
 				// Create a new cachable segment and put it on the cache
 				size_t size = (SPAN_MAX_SIZE * SPANS_PER_SEGMENT) + sizeof(segment_t) + SPAN_ADDRESS_GRANULARITY;
-				segment_t* segment = _memory_allocate_external(size);
+				segment_t* segment = static_cast<segment_t*>(_memory_allocate_external(size));
 				memset(segment, 0, sizeof(segment_t));
-				span = pointer_offset(segment, sizeof(segment_t));
+				span = static_cast<span_t*>(pointer_offset(segment, sizeof(segment_t)));
 				// Align to the required size of the spans
 				if ((uintptr_t)span & (SPAN_ADDRESS_GRANULARITY - 1))
-					span = (void*)(((uintptr_t)span & ~((uintptr_t)SPAN_ADDRESS_GRANULARITY - 1)) + SPAN_ADDRESS_GRANULARITY);
+					span = static_cast<span_t*>((void*)(((uintptr_t)span & ~((uintptr_t)SPAN_ADDRESS_GRANULARITY - 1)) + SPAN_ADDRESS_GRANULARITY));
 				span->owner_segment = segment;
 
 				segment->first_span = span;
@@ -1700,7 +1705,7 @@ _memory_map(size_t page_count) {
 				if (!span)
 				{
 					// Try the next one
-					global_segment = atomic_load_ptr(&global_segment->next_segment);
+					global_segment = static_cast<segment_t*>(atomic_load_ptr(&global_segment->next_segment));
 				}
 			}
 
@@ -1719,11 +1724,11 @@ _memory_map(size_t page_count) {
 	else
 	{
 		size_t size = page_count * PAGE_SIZE + sizeof(segment_t) + SPAN_ADDRESS_GRANULARITY;
-		segment_t* segment = _memory_allocate_external(size);
-		span = pointer_offset(segment, sizeof(segment_t));
+		segment_t* segment = static_cast<segment_t*>(_memory_allocate_external(size));
+		span = static_cast<span_t*>(pointer_offset(segment, sizeof(segment_t)));
 		// Align to the required size of the spans
 		if ((uintptr_t)span & (SPAN_ADDRESS_GRANULARITY - 1))
-			span = (void*)(((uintptr_t)span & ~((uintptr_t)SPAN_ADDRESS_GRANULARITY - 1)) + SPAN_ADDRESS_GRANULARITY);
+			span = static_cast<span_t*>((void*)(((uintptr_t)span & ~((uintptr_t)SPAN_ADDRESS_GRANULARITY - 1)) + SPAN_ADDRESS_GRANULARITY));
 
 		segment->first_span = span;
 		atomic_store_ptr(&segment->next_segment, (void*)SINGLE_SEGMENT_MARKER);
@@ -1740,7 +1745,7 @@ static void
 _memory_unmap(span_t* span, size_t page_count) {
 	segment_t* segment = span->owner_segment;
 	assert(segment);
-	segment_t* nn = atomic_load_ptr(&segment->next_segment);
+	segment_t* nn = static_cast<segment_t*>(atomic_load_ptr(&segment->next_segment));
 	if (nn == (void*)SINGLE_SEGMENT_MARKER)
 	{
 		_memory_deallocate_external(segment);
@@ -1928,7 +1933,7 @@ rpmalloc_thread_statistics(rpmalloc_thread_statistics_t* stats) {
 	void* p = atomic_load_ptr(&heap->defer_deallocate);
 	while (p) {
 		void* next = *(void**)p;
-		span_t* span = (void*)((uintptr_t)p & SPAN_MASK);
+		span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 		stats->deferred += _memory_size_class[span->size_class].size;
 		p = next;
 	}
@@ -1975,4 +1980,6 @@ rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats) {
 		size_t list_bytes = global_span_count * (iclass + 1) * SPAN_MAX_PAGE_COUNT * PAGE_SIZE;
 		stats->cached_large += list_bytes;
 	}
+}
+
 }
