@@ -59,7 +59,11 @@
 #define RPMALLOC_ALIGN(ARG) alignas(ARG)
 #endif
 
+#if defined(_MSC_VER)
 #define RPMALLOC_FORCEINLINE __forceinline
+#else
+#define RPMALLOC_FORCEINLINE inline
+#endif
 
 #ifdef RPMALLOC_USE_PTHREADS_OVER_TLS
 #define RPMALLOC_DEFINE_THREAD_LOCAL(TYPE, NAME) \
@@ -380,10 +384,10 @@ _memory_map(size_t page_count);
 static void
 _memory_unmap(span_t* ptr, size_t page_count);
 
-void*
+static void*
 _memory_allocate_external(size_t bytes);
 
-void
+static void
 _memory_deallocate_external(void* ptr);
 
 static int
@@ -1779,20 +1783,6 @@ rpaligned_alloc(size_t alignment, size_t size) {
 	if ((uintptr_t)ptr & (alignment - 1))
 		ptr = (void*)(((uintptr_t)ptr & ~((uintptr_t)alignment - 1)) + alignment);
 	return ptr;
-}
-
-void*
-rpmemalign(size_t alignment, size_t size) {
-	return rpaligned_alloc(alignment, size);
-}
-
-int
-rpposix_memalign(void **memptr, size_t alignment, size_t size) {
-	if (memptr)
-		*memptr = rpaligned_alloc(alignment, size);
-	else
-		return EINVAL;
-	return *memptr ? 0 : ENOMEM;
 }
 
 size_t

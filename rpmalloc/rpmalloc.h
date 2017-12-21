@@ -106,12 +106,6 @@ rpaligned_realloc(void* ptr, size_t alignment, size_t size, size_t oldsize, unsi
 extern RPMALLOC_CALL void*
 rpaligned_alloc(size_t alignment, size_t size) RPMALLOC_ATTRIBUTE;
 
-extern RPMALLOC_CALL void*
-rpmemalign(size_t alignment, size_t size) RPMALLOC_ATTRIBUTE;
-
-extern int
-rpposix_memalign(void **memptr, size_t alignment, size_t size);
-
 extern size_t
 rpmalloc_usable_size(void* ptr);
 
