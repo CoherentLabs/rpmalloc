@@ -66,6 +66,7 @@
 #endif
 
 #ifdef RPMALLOC_USE_PTHREADS_OVER_TLS
+#include <pthread.h>
 #define RPMALLOC_DEFINE_THREAD_LOCAL(TYPE, NAME) \
 		pthread_key_t NAME; \
 		static pthread_once_t NAME##OnceControl = PTHREAD_ONCE_INIT; \
@@ -150,7 +151,7 @@
 #endif
 
 //! Memory page size
-#define PAGE_SIZE                 512
+#define RPMALLOC_PAGE_SIZE                 512
 
 //! Granularity of all memory page spans for small & medium block allocations
 #define SPAN_ADDRESS_GRANULARITY  8192
@@ -159,7 +160,7 @@
 //! Mask for getting the start of a span of memory pages
 #define SPAN_MASK                 (~((uintptr_t)SPAN_MAX_SIZE - 1))
 //! Maximum number of memory pages in a span
-#define SPAN_MAX_PAGE_COUNT       (SPAN_MAX_SIZE / PAGE_SIZE)
+#define SPAN_MAX_PAGE_COUNT       (SPAN_MAX_SIZE / RPMALLOC_PAGE_SIZE)
 
 #define QUICK_ALLOCATION_PAGES_COUNT SPAN_MAX_PAGE_COUNT
 #define SPANS_PER_SEGMENT 32
@@ -169,7 +170,7 @@
 //! Small granularity shift count
 #define SMALL_GRANULARITY_SHIFT   4
 //! Number of small block size classes
-#define SMALL_CLASS_COUNT         (((PAGE_SIZE - SPAN_HEADER_SIZE) >> 1) >> SMALL_GRANULARITY_SHIFT)
+#define SMALL_CLASS_COUNT         (((RPMALLOC_PAGE_SIZE - SPAN_HEADER_SIZE) >> 1) >> SMALL_GRANULARITY_SHIFT)
 //! Maximum size of a small block
 #define SMALL_SIZE_LIMIT          (SMALL_CLASS_COUNT * SMALL_GRANULARITY)
 
@@ -190,7 +191,7 @@
 //! Maximum number of memory pages in a large block
 #define LARGE_MAX_PAGES           (SPAN_MAX_PAGE_COUNT * LARGE_CLASS_COUNT)
 //! Maximum size of a large block
-#define LARGE_SIZE_LIMIT          ((LARGE_MAX_PAGES * PAGE_SIZE) - SPAN_HEADER_SIZE)
+#define LARGE_SIZE_LIMIT          ((LARGE_MAX_PAGES * RPMALLOC_PAGE_SIZE) - SPAN_HEADER_SIZE)
 
 #define SPAN_LIST_LOCK_TOKEN      ((void*)1)
 
@@ -211,7 +212,7 @@ typedef uint32_t count_t;
 
 #if ENABLE_VALIDATE_ARGS
 //! Maximum allocation size to avoid integer overflow
-#define MAX_ALLOC_SIZE            (((size_t)-1) - PAGE_SIZE)
+#define MAX_ALLOC_SIZE            (((size_t)-1) - RPMALLOC_PAGE_SIZE)
 #endif
 
 namespace coherent_rpmalloc
@@ -665,7 +666,7 @@ use_active:
 		span = _memory_global_cache_extract(size_class->page_count);
 #if ENABLE_STATISTICS
 		if (span)
-			heap->global_to_thread += (size_t)span->data.list_size * size_class->page_count * PAGE_SIZE;
+			heap->global_to_thread += (size_t)span->data.list_size * size_class->page_count * RPMALLOC_PAGE_SIZE;
 #endif
 	}
 	if (span) {
@@ -738,7 +739,7 @@ _memory_allocate_large_from_heap(heap_t* heap, size_t size) {
 			span = _memory_global_cache_extract(SPAN_MAX_PAGE_COUNT);
 #if ENABLE_STATISTICS
 			if (span)
-				heap->global_to_thread += (size_t)span->data.list_size * SPAN_MAX_PAGE_COUNT * PAGE_SIZE;
+				heap->global_to_thread += (size_t)span->data.list_size * SPAN_MAX_PAGE_COUNT * RPMALLOC_PAGE_SIZE;
 #endif
 		}
 		if (span) {
@@ -912,7 +913,7 @@ _memory_heap_cache_insert(heap_t* heap, span_t* span, size_t page_count) {
 		*cache = next;
 		_memory_global_cache_insert(span, list_size, page_count);
 #if ENABLE_STATISTICS
-		heap->thread_to_global += list_size * page_count * PAGE_SIZE;
+		heap->thread_to_global += list_size * page_count * RPMALLOC_PAGE_SIZE;
 #endif
 	}
 #endif
@@ -1032,7 +1033,7 @@ _memory_deallocate_deferred(heap_t* heap, size_t size_class) {
 	void* p = heap->defer_deallocate.load();
 	if (!p)
 		return 0;
-	if (!std::atomic_compare_exchange_strong(&heap->defer_deallocate, &p, 0))
+	if (!std::atomic_compare_exchange_strong(&heap->defer_deallocate, &p, (void*)0))
 		return 0;
 	//Keep track if we deallocate in the given size class
 	int got_class = 0;
@@ -1071,14 +1072,14 @@ _memory_deallocate_defer(int32_t heap_id, void* p) {
 static void*
 _memory_allocate(size_t size) {
 	if (size <= MEDIUM_SIZE_LIMIT)
-		return _memory_allocate_from_heap(_memory_thread_heap, size);
+		return _memory_allocate_from_heap(RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap), size);
 	else if (size <= LARGE_SIZE_LIMIT)
-		return _memory_allocate_large_from_heap(_memory_thread_heap, size);
+		return _memory_allocate_large_from_heap(RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap), size);
 
 	//Oversized, allocate pages directly
 	size += SPAN_HEADER_SIZE;
-	size_t num_pages = size / PAGE_SIZE;
-	if (size % PAGE_SIZE)
+	size_t num_pages = size / RPMALLOC_PAGE_SIZE;
+	if (size % RPMALLOC_PAGE_SIZE)
 		++num_pages;
 	span_t* span = _memory_map(num_pages);
 	span->heap_id = 0;
@@ -1097,7 +1098,7 @@ _memory_deallocate(void* p) {
 	//Grab the span (always at start of span, using 64KiB alignment)
 	span_t* span = static_cast<span_t*>((void*)((uintptr_t)p & SPAN_MASK));
 	int32_t heap_id = span->heap_id.load();
-	heap_t* heap = _memory_thread_heap;
+	heap_t* heap = RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap);
 	//Check if block belongs to this heap or if deallocation should be deferred
 	if (heap_id == heap->id) {
 		if (span->size_class < SIZE_CLASS_COUNT)
@@ -1147,15 +1148,15 @@ _memory_reallocate(void* p, size_t size, size_t oldsize, unsigned int flags) {
 		else {
 			//Oversized block
 			size_t total_size = size + SPAN_HEADER_SIZE;
-			size_t num_pages = total_size / PAGE_SIZE;
-			if (total_size % PAGE_SIZE)
+			size_t num_pages = total_size / RPMALLOC_PAGE_SIZE;
+			if (total_size % RPMALLOC_PAGE_SIZE)
 				++num_pages;
 			//Page count is stored in next_span
 			size_t current_pages = (size_t)span->next_span;
 			if ((current_pages >= num_pages) && (num_pages >= (current_pages / 2)))
 				return p; //Still fits and less than half of memory would be freed
 			if (!oldsize)
-				oldsize = (current_pages * (size_t)PAGE_SIZE) - SPAN_HEADER_SIZE;
+				oldsize = (current_pages * (size_t)RPMALLOC_PAGE_SIZE) - SPAN_HEADER_SIZE;
 		}
 	}
 
@@ -1192,7 +1193,7 @@ _memory_usable_size(void* p) {
 
 	//Oversized block, page count is stored in next_span
 	size_t current_pages = (size_t)span->next_span;
-	return (current_pages * (size_t)PAGE_SIZE) - SPAN_HEADER_SIZE;
+	return (current_pages * (size_t)RPMALLOC_PAGE_SIZE) - SPAN_HEADER_SIZE;
 }
 
 //! Adjust and optimize the size class properties for the given class
@@ -1203,7 +1204,7 @@ _memory_adjust_size_class(size_t iclass) {
 
 	//TODO: STNK Hardcode always 16 pages
 	size_t page_count = QUICK_ALLOCATION_PAGES_COUNT;
-	size_t block_count = ((page_count * PAGE_SIZE) - SPAN_HEADER_SIZE) / block_size;
+	size_t block_count = ((page_count * RPMALLOC_PAGE_SIZE) - SPAN_HEADER_SIZE) / block_size;
 	//Store the final configuration
 	_memory_size_class[iclass].page_count = (uint16_t)page_count;
 	_memory_size_class[iclass].block_count = (uint16_t)block_count;
@@ -1339,6 +1340,9 @@ rpmalloc_finalize(void) {
 
 	_release_segments_lock_write();
 
+	RPMALLOC_FREE_THREAD_LOCAL(_memory_thread_heap);
+	RPMALLOC_FREE_THREAD_LOCAL(_memory_preferred_heap);
+	
 	std::atomic_thread_fence(std::memory_order_release);
 }
 
@@ -1367,33 +1371,35 @@ void _release_heaps_lock()
 //! Initialize thread, assign heap
 void
 rpmalloc_thread_initialize(void) {
-	if (!_memory_thread_heap) {
+	if (!RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap)) {
 		_acquire_heaps_lock();
 
-		void* heap_ptr = _memory_heaps[_memory_preferred_heap].load();
+		void* heap_ptr = _memory_heaps[RPMALLOC_GET_THREAD_LOCAL_LITERAL_VALUE(uint32_t, _memory_preferred_heap)].load();
 
-		for (uint32_t id = _memory_preferred_heap; id < HEAP_ARRAY_SIZE + _memory_preferred_heap; ++id)
+		for (uint32_t id = RPMALLOC_GET_THREAD_LOCAL_LITERAL_VALUE(uint32_t, _memory_preferred_heap);
+			id < HEAP_ARRAY_SIZE + RPMALLOC_GET_THREAD_LOCAL_LITERAL_VALUE(uint32_t, _memory_preferred_heap);
+			++id)
 		{
 			heap_ptr = _memory_heaps[id % HEAP_ARRAY_SIZE].load();
 			if (heap_ptr && !_is_heap_in_use(heap_ptr))
 			{
-				_memory_thread_heap = _get_heap_ptr(heap_ptr);
+				RPMALLOC_SET_THREAD_LOCAL(_memory_thread_heap, _get_heap_ptr(heap_ptr));
 				_memory_heaps[id % HEAP_ARRAY_SIZE] = _mark_heap_in_use(heap_ptr);
-				_memory_preferred_heap = (id % HEAP_ARRAY_SIZE);
+				RPMALLOC_SET_THREAD_LOCAL(_memory_preferred_heap, (id % HEAP_ARRAY_SIZE));
 				break;
 			}
 		}
 
-		if (!_memory_thread_heap)
+		if (!RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap))
 		{
 			// We have to allocate a new heap
 			heap_t* heap = _memory_allocate_heap();
 
 			int32_t id = heap->id;
 			assert(atomic_load32(&_memory_heaps[id]) == 0);
-			_memory_thread_heap = heap;
+			RPMALLOC_SET_THREAD_LOCAL(_memory_thread_heap, heap);
 			_memory_heaps[id] = _mark_heap_in_use(heap);
-			_memory_preferred_heap = id;
+			RPMALLOC_SET_THREAD_LOCAL(_memory_preferred_heap, id);
 		}
 
 		_release_heaps_lock();
@@ -1403,26 +1409,26 @@ rpmalloc_thread_initialize(void) {
 		heap->global_to_thread = 0;
 #endif
 	}
-	assert(_memory_thread_heap);
+	assert(RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap));
 }
 
 void
 rpmalloc_thread_reset(void) {
-	if (!_memory_thread_heap)
+	if (!RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap))
 		return;
 
 	_acquire_heaps_lock();
-	void* heap_ptr = _memory_heaps[_memory_preferred_heap].load();
+	void* heap_ptr = _memory_heaps[RPMALLOC_GET_THREAD_LOCAL_LITERAL_VALUE(uint32_t, _memory_preferred_heap)].load();
 	assert(_is_heap_in_use(heap_ptr));
-	_memory_heaps[_memory_preferred_heap] = _unmark_heap_in_use(heap_ptr);
+	_memory_heaps[RPMALLOC_GET_THREAD_LOCAL_LITERAL_VALUE(uint32_t, _memory_preferred_heap)] = _unmark_heap_in_use(heap_ptr);
 	_release_heaps_lock();
 
-	_memory_thread_heap = 0;
+	RPMALLOC_SET_THREAD_LOCAL(_memory_thread_heap, nullptr);
 }
 
 int
 rpmalloc_is_thread_initialized(void) {
-	return (_memory_thread_heap != 0) ? 1 : 0;
+	return (RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap) != 0) ? 1 : 0;
 }
 
 RPMALLOC_FORCEINLINE int _get_readers_count(int32_t l)
@@ -1641,7 +1647,7 @@ _memory_map(size_t page_count) {
 	// Allocate a segment of the minimal required size
 	else
 	{
-		size_t size = page_count * PAGE_SIZE + sizeof(segment_t) + SPAN_ADDRESS_GRANULARITY;
+		size_t size = page_count * RPMALLOC_PAGE_SIZE + sizeof(segment_t) + SPAN_ADDRESS_GRANULARITY;
 		segment_t* segment = static_cast<segment_t*>(_memory_allocate_external(size));
 		span = static_cast<span_t*>(pointer_offset(segment, sizeof(segment_t)));
 		// Align to the required size of the spans
@@ -1683,8 +1689,8 @@ static void*
 _memory_allocate_external(size_t bytes)
 {
 #if ENABLE_STATISTICS
-	atomic_add32(&_mapped_pages, bytes / PAGE_SIZE);
-	atomic_add32(&_mapped_total, bytes / PAGE_SIZE);
+	atomic_add32(&_mapped_pages, bytes / RPMALLOC_PAGE_SIZE);
+	atomic_add32(&_mapped_total, bytes / RPMALLOC_PAGE_SIZE);
 #endif
 	return rpmalloc_allocate_memory_external(bytes);
 }
@@ -1792,13 +1798,13 @@ rpmalloc_usable_size(void* ptr) {
 
 void
 rpmalloc_thread_collect(void) {
-	_memory_deallocate_deferred(_memory_thread_heap, 0);
+	_memory_deallocate_deferred(RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap), 0);
 }
 
 void
 rpmalloc_thread_statistics(rpmalloc_thread_statistics_t* stats) {
 	memset(stats, 0, sizeof(rpmalloc_thread_statistics_t));
-	heap_t* heap = _memory_thread_heap;
+	heap_t* heap = RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap);
 #if ENABLE_STATISTICS
 	stats->allocated = heap->allocated;
 	stats->requested = heap->requested;
@@ -1823,16 +1829,16 @@ rpmalloc_thread_statistics(rpmalloc_thread_statistics_t* stats) {
 	}
 
 	if (heap->span_cache)
-		stats->spancache = (size_t)heap->span_cache->data.list_size * QUICK_ALLOCATION_PAGES_COUNT * PAGE_SIZE;
+		stats->spancache = (size_t)heap->span_cache->data.list_size * QUICK_ALLOCATION_PAGES_COUNT * RPMALLOC_PAGE_SIZE;
 }
 
 void
 rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats) {
 	memset(stats, 0, sizeof(rpmalloc_global_statistics_t));
 #if ENABLE_STATISTICS
-	stats->mapped = (size_t)atomic_load32(&_mapped_pages) * PAGE_SIZE;
-	stats->mapped_total = (size_t)atomic_load32(&_mapped_total) * PAGE_SIZE;
-	stats->unmapped_total = (size_t)atomic_load32(&_unmapped_total) * PAGE_SIZE;
+	stats->mapped = (size_t)atomic_load32(&_mapped_pages) * RPMALLOC_PAGE_SIZE;
+	stats->mapped_total = (size_t)atomic_load32(&_mapped_total) * RPMALLOC_PAGE_SIZE;
+	stats->unmapped_total = (size_t)atomic_load32(&_unmapped_total) * RPMALLOC_PAGE_SIZE;
 #endif
 	void* global_span_ptr = _memory_span_cache.load();
 	while (global_span_ptr == SPAN_LIST_LOCK_TOKEN) {
@@ -1840,7 +1846,7 @@ rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats) {
 		global_span_ptr = _memory_span_cache.load();
 	}
 	uintptr_t global_span_count = (uintptr_t)global_span_ptr & ~SPAN_MASK;
-	size_t list_bytes = global_span_count * QUICK_ALLOCATION_PAGES_COUNT * PAGE_SIZE;
+	size_t list_bytes = global_span_count * QUICK_ALLOCATION_PAGES_COUNT * RPMALLOC_PAGE_SIZE;
 	stats->cached += list_bytes;
 
 	for (size_t iclass = 0; iclass < LARGE_CLASS_COUNT; ++iclass) {
@@ -1850,7 +1856,7 @@ rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats) {
 			global_span_ptr = _memory_large_cache[iclass].load();
 		}
 		uintptr_t global_span_count = (uintptr_t)global_span_ptr & ~SPAN_MASK;
-		size_t list_bytes = global_span_count * (iclass + 1) * SPAN_MAX_PAGE_COUNT * PAGE_SIZE;
+		size_t list_bytes = global_span_count * (iclass + 1) * SPAN_MAX_PAGE_COUNT * RPMALLOC_PAGE_SIZE;
 		stats->cached_large += list_bytes;
 	}
 }
