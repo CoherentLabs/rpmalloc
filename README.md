@@ -14,8 +14,6 @@ Platforms currently supported:
 
 This library is put in the public domain; you can redistribute it and/or modify it without any restrictions. Or, if you choose, you can use it under the MIT license.
 
-Please consider our Patreon to support our work - https://www.patreon.com/rampantpixels
-
 Originally created by Mattias Jansson ([@maniccoder](https://twitter.com/maniccoder)) / Rampant Pixels - http://www.rampantpixels.com
 
 Fork and modifications by Coherent Labs ([@CoherentLabs](https://twitter.com/CoherentLabs)) - http://www.coherent-labs.com
