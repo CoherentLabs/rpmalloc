@@ -1,9 +1,11 @@
 /* rpmalloc.h  -  Memory allocator  -  Public Domain  -  2016 Mattias Jansson / Rampant Pixels
+ * Copyright 2017 Stoyan Nikolov, Coherent Labs
  *
  * This library provides a cross-platform lock free thread caching malloc implementation in C11.
  * The latest source code is always available at
  *
  * https://github.com/rampantpixels/rpmalloc
+ * https://github.com/CoherentLabs/rpmalloc
  *
  * This library is put in the public domain; you can redistribute it and/or modify it without any restrictions.
  *
@@ -13,9 +15,8 @@
 
 #include <stddef.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace coherent_rpmalloc
+{
 
 #if defined(__clang__) || defined(__GNUC__)
 # define RPMALLOC_ATTRIBUTE __attribute__((__malloc__))
@@ -73,7 +74,7 @@ extern void
 rpmalloc_thread_initialize(void);
 
 extern void
-rpmalloc_thread_finalize(void);
+rpmalloc_thread_reset(void);
 
 extern void
 rpmalloc_thread_collect(void);
@@ -105,15 +106,10 @@ rpaligned_realloc(void* ptr, size_t alignment, size_t size, size_t oldsize, unsi
 extern RPMALLOC_CALL void*
 rpaligned_alloc(size_t alignment, size_t size) RPMALLOC_ATTRIBUTE;
 
-extern RPMALLOC_CALL void*
-rpmemalign(size_t alignment, size_t size) RPMALLOC_ATTRIBUTE;
-
-extern int
-rpposix_memalign(void **memptr, size_t alignment, size_t size);
-
 extern size_t
 rpmalloc_usable_size(void* ptr);
 
-#ifdef __cplusplus
+extern void* rpmalloc_allocate_memory_external(size_t bytes);
+extern void rpmalloc_deallocate_memory_external(void* ptr);
+
 }
-#endif
