@@ -1707,7 +1707,7 @@ thread_yield(void) {}
 
 // Extern interface
 
-void*
+RPMALLOC_CALL void*
 rpmalloc(size_t size) {
 #if ENABLE_VALIDATE_ARGS
 	if (size >= MAX_ALLOC_SIZE) {
@@ -1723,7 +1723,7 @@ rpfree(void* ptr) {
 	_memory_deallocate(ptr);
 }
 
-void*
+RPMALLOC_CALL void*
 rpcalloc(size_t num, size_t size) {
 	size_t total;
 #if ENABLE_VALIDATE_ARGS
@@ -1773,7 +1773,7 @@ rpaligned_realloc(void* ptr, size_t alignment, size_t size, size_t oldsize,
 	return _memory_reallocate(ptr, size, oldsize, flags);
 }
 
-void*
+RPMALLOC_CALL void*
 rpaligned_alloc(size_t alignment, size_t size) {
 	if (alignment <= 16)
 		return rpmalloc(size);
@@ -1785,9 +1785,16 @@ rpaligned_alloc(size_t alignment, size_t size) {
 	}
 #endif
 
+	if (alignment >= (SPAN_MAX_SIZE - SPAN_HEADER_SIZE))
+	{
+		assert(false && "Alignment is too large - not supported!");
+		return 0;
+	}
+
 	void* ptr = rpmalloc(size + alignment);
 	if ((uintptr_t)ptr & (alignment - 1))
 		ptr = (void*)(((uintptr_t)ptr & ~((uintptr_t)alignment - 1)) + alignment);
+
 	return ptr;
 }
 
