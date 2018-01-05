@@ -1,4 +1,4 @@
-# coherent-rpmalloc - Coherent Labs' fork of the Fork Rampant Pixels Memory Allocator
+# coherent-rpmalloc - Coherent Labs' fork of the Rampant Pixels Memory Allocator
 This library provides a public domain cross platform lock free thread caching 16-byte aligned memory allocator implemented in C++.
 This version is a fork of https://github.com/rampantpixels/rpmalloc.
 
@@ -39,7 +39,7 @@ coherent-rpmalloc removes some significant requirements of the original implemen
 - Reduced the allocation granularities and how much memory the allocator "keeps", which in turn reduces the overall footprint of memory managed by it.
 - Removed span classes, because all spans have the same number of pages.
 - Moved to C++11 in order to easily port on multiple platforms that have no compiler support for C11.
-- Removed the requirement to do thread initialization/deinitialization by hand - the library will work on any thread all the time.
+- Relaxed the performance impact of thread initialization/deinitialization. When needing to allocate memory though coherent-rpmalloc, the user has to call *rpmalloc_thread_initialize*, when she is done, she can call *rpmalloc_thread_reset*. Both operations are very light-weight as the internal structures will be re-used.
 
 # Usage
 
@@ -47,6 +47,5 @@ The embedding application must implement the *rpmalloc_allocate_memory_external*
 
 The allocator has to be initialized and deinitialized with the *rpmalloc_initialize* and *rpmalloc_finalize* functions.
 
-After that allocations can be performed with *rpmalloc* and family functions. The allocator will work transparently on any thread after it has been initialized. This is different from the original version, which required per-thread init/deinit.
-
+After that allocations can be performed with *rpmalloc* and family functions. On each thread that will use the allocator, the user has to call *rpmalloc_thread_initialize*. When done with allocations on a thread, the user should call *rpmalloc_thread_reset*. Both operations are very light-weight, so it's usually OK to call them often  - for instance when spawning short-lived threads.
 
