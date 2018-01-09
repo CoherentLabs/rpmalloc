@@ -140,6 +140,10 @@
 #define ENABLE_VALIDATE_ARGS      0
 #endif
 
+#if ENABLE_VALIDATE_ARGS && defined(RPMALLOC_PLATFORM_WIN)
+#include <Intsafe.h>
+#endif
+
 #ifndef ENABLE_STATISTICS
 //! Enable statistics collection
 #define ENABLE_STATISTICS         0
@@ -913,7 +917,7 @@ _memory_heap_cache_insert(heap_t* heap, span_t* span) {
 		*cache = next;
 		_memory_global_cache_insert(span, list_size);
 #if ENABLE_STATISTICS
-		heap->thread_to_global += list_size * page_count * RPMALLOC_PAGE_SIZE;
+		heap->thread_to_global += list_size * QUICK_ALLOCATION_PAGES_COUNT * RPMALLOC_PAGE_SIZE;
 #endif
 	}
 #endif
@@ -1406,8 +1410,8 @@ rpmalloc_thread_initialize(void) {
 		_release_heaps_lock();
 
 #if ENABLE_STATISTICS
-		heap->thread_to_global = 0;
-		heap->global_to_thread = 0;
+		RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap)->thread_to_global = 0;
+		RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap)->global_to_thread = 0;
 #endif
 	}
 	assert(RPMALLOC_GET_THREAD_LOCAL(heap_t*, _memory_thread_heap));
@@ -1582,8 +1586,8 @@ void _return_span_to_segment(segment_t* segment, span_t* span) {
 		if (head)
 		{
 #if ENABLE_STATISTICS
-			atomic_add32(&_mapped_pages, -(int32_t)QUICK_ALLOCATION_PAGES_COUNT);
-			atomic_add32(&_unmapped_total, (int32_t)QUICK_ALLOCATION_PAGES_COUNT);
+			_mapped_pages -= QUICK_ALLOCATION_PAGES_COUNT;
+			_unmapped_total -= QUICK_ALLOCATION_PAGES_COUNT;
 #endif
 			_memory_deallocate_external(head);
 		}
@@ -1675,8 +1679,8 @@ _memory_unmap(span_t* span) {
 		_memory_deallocate_external(segment);
 
 #if ENABLE_STATISTICS
-		atomic_add32(&_mapped_pages, -(int32_t)page_count);
-		atomic_add32(&_unmapped_total, (int32_t)page_count);
+		_mapped_pages -= QUICK_ALLOCATION_PAGES_COUNT;
+		_unmapped_total -= QUICK_ALLOCATION_PAGES_COUNT;
 #endif
 	}
 	else
@@ -1689,8 +1693,8 @@ static void*
 _memory_allocate_external(size_t bytes)
 {
 #if ENABLE_STATISTICS
-	atomic_add32(&_mapped_pages, bytes / RPMALLOC_PAGE_SIZE);
-	atomic_add32(&_mapped_total, bytes / RPMALLOC_PAGE_SIZE);
+	_mapped_total += (int)(bytes / RPMALLOC_PAGE_SIZE);
+	_mapped_pages += (int)(bytes / RPMALLOC_PAGE_SIZE);
 #endif
 	return rpmalloc_allocate_memory_external(bytes);
 }
@@ -1727,7 +1731,7 @@ RPMALLOC_CALL void*
 rpcalloc(size_t num, size_t size) {
 	size_t total;
 #if ENABLE_VALIDATE_ARGS
-#ifdef PLATFORM_WINDOWS
+#ifdef RPMALLOC_PLATFORM_WIN
 	int err = SizeTMult(num, size, &total);
 	if ((err != S_OK) || (total >= MAX_ALLOC_SIZE)) {
 		errno = EINVAL;
@@ -1844,9 +1848,9 @@ void
 rpmalloc_global_statistics(rpmalloc_global_statistics_t* stats) {
 	memset(stats, 0, sizeof(rpmalloc_global_statistics_t));
 #if ENABLE_STATISTICS
-	stats->mapped = (size_t)atomic_load32(&_mapped_pages) * RPMALLOC_PAGE_SIZE;
-	stats->mapped_total = (size_t)atomic_load32(&_mapped_total) * RPMALLOC_PAGE_SIZE;
-	stats->unmapped_total = (size_t)atomic_load32(&_unmapped_total) * RPMALLOC_PAGE_SIZE;
+	stats->mapped = _mapped_pages * RPMALLOC_PAGE_SIZE;
+	stats->mapped_total = _mapped_total * RPMALLOC_PAGE_SIZE;
+	stats->unmapped_total = _unmapped_total * RPMALLOC_PAGE_SIZE;
 #endif
 	{
 		void* global_span_ptr = _memory_span_cache.load();
