@@ -777,7 +777,7 @@ _memory_allocate_large_from_heap(heap_t* heap, size_t size) {
 
 use_cache:
 	//Step 1: Check if cache for this large size class (or the following, unless first class) has a span
-	while (!heap->large_cache[idx] && (idx < LARGE_CLASS_COUNT) && (idx < num_spans + 1))
+	while (!heap->large_cache[idx] && (idx < (LARGE_CLASS_COUNT - 1)) && (idx < (num_spans + 1)))
 		++idx;
 	span_t* span = heap->large_cache[idx];
 	if (span) {
@@ -793,6 +793,10 @@ use_cache:
 		}
 
 		span->size_class = SIZE_CLASS_COUNT + (count_t)idx;
+		
+		// Mark span as owned by this heap
+		span->heap_id = heap->id;
+		std::atomic_thread_fence(std::memory_order_release);
 
 		//Increase counter
 		_memory_counter_increase(&heap->large_counter[idx], &_memory_max_allocation_large[idx]);
