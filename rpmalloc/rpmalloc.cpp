@@ -49,6 +49,8 @@
 
 #ifdef RPMALLOC_USE_PTHREADS_OVER_TLS
 #define THREAD_LOCAL static_assert(false, "Thread Local Storage is unsupported on this platform! Use Pthreads.");
+#elif RPMALLOC_PLATFORM_MACOSX
+#define RPMALLOC_THREAD_LOCAL __thread
 #else
 #define RPMALLOC_THREAD_LOCAL thread_local
 #endif
@@ -236,7 +238,7 @@ typedef struct heap_t heap_t;
 typedef struct span_t span_t;
 //! Size class definition
 typedef struct size_class_t size_class_t;
-//! Span block bookkeeping 
+//! Span block bookkeeping
 typedef struct span_block_t span_block_t;
 //! Span data union, usage depending on span state
 typedef union span_data_t span_data_t;
@@ -793,7 +795,7 @@ use_cache:
 		}
 
 		span->size_class = SIZE_CLASS_COUNT + (count_t)idx;
-		
+
 		// Mark span as owned by this heap
 		span->heap_id = heap->id;
 		std::atomic_thread_fence(std::memory_order_release);
@@ -1255,7 +1257,7 @@ rpmalloc_initialize(void) {
 
 	_segments_head = 0;
 	_segments_rw_lock = 0;
-	
+
 	//Initialize this thread
 	rpmalloc_thread_initialize();
 	return 0;
@@ -1352,7 +1354,7 @@ rpmalloc_finalize(void) {
 
 	RPMALLOC_FREE_THREAD_LOCAL(_memory_thread_heap);
 	RPMALLOC_FREE_THREAD_LOCAL(_memory_preferred_heap);
-	
+
 	std::atomic_thread_fence(std::memory_order_release);
 }
 
@@ -1664,7 +1666,7 @@ _memory_map(size_t page_count) {
 
 		segment->first_span = span;
 		segment->next_segment = (void*)SINGLE_SEGMENT_MARKER;
-		
+
 		// Allocate a segment that will not be re-used
 		span->owner_segment = segment;
 	}
