@@ -1238,14 +1238,11 @@ static bool _rpmalloc_initialized = false;
 //! Initialize the allocator and setup global data
 int
 rpmalloc_initialize(void) {
-	if (!_rpmalloc_initialized)
-	{
-		_rpmalloc_initialized = true;
-	}
-	else
-	{
+	if (_rpmalloc_initialized) {
 		return 0;
 	}
+	_rpmalloc_initialized = true;
+
 	RPMALLOC_INITIALIZE_THREAD_LOCAL(_memory_thread_heap);
 	RPMALLOC_INITIALIZE_THREAD_LOCAL(_memory_preferred_heap);
 	_memory_heap_id = 0;
