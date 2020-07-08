@@ -1239,6 +1239,8 @@ static bool _rpmalloc_initialized = false;
 int
 rpmalloc_initialize(void) {
 	if (_rpmalloc_initialized) {
+		// Initialize this thread
+		rpmalloc_thread_initialize();
 		return 0;
 	}
 	_rpmalloc_initialized = true;
