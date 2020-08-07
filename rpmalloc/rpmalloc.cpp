@@ -1233,9 +1233,18 @@ _memory_adjust_size_class(size_t iclass) {
 	}
 }
 
+static bool _rpmalloc_initialized = false;
+
 //! Initialize the allocator and setup global data
 int
 rpmalloc_initialize(void) {
+	if (_rpmalloc_initialized) {
+		// Initialize this thread
+		rpmalloc_thread_initialize();
+		return 0;
+	}
+	_rpmalloc_initialized = true;
+
 	RPMALLOC_INITIALIZE_THREAD_LOCAL(_memory_thread_heap);
 	RPMALLOC_INITIALIZE_THREAD_LOCAL(_memory_preferred_heap);
 	_memory_heap_id = 0;
@@ -1356,6 +1365,8 @@ rpmalloc_finalize(void) {
 	RPMALLOC_FREE_THREAD_LOCAL(_memory_preferred_heap);
 
 	std::atomic_thread_fence(std::memory_order_release);
+
+	_rpmalloc_initialized = false;
 }
 
 int _is_heap_in_use(void* heap) {
