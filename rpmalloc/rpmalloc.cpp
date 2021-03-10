@@ -859,6 +859,7 @@ _memory_allocate_heap(void) {
 	//Get a new heap ID
 	do {
 		heap->id = (++_memory_heap_id);
+		assert(heap->id < HEAP_ARRAY_SIZE);
 		if (_memory_heap_lookup(heap->id))
 			heap->id = 0;
 	} while (!heap->id);
