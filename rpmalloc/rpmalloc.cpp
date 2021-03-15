@@ -99,12 +99,12 @@
 #  define assert(x)
 #endif
 
-void Crash()
+void Crash(const char* message)
 {
-		*(int*)(nullptr) = 42;
+	*(const char**)(nullptr) = message;
 }
 
-#define ASSERT_CRASH(COND) if (!(COND)) Crash();
+#define ASSERT_CRASH(COND, MESSAGE) if (!(COND)) Crash(MESSAGE);
 
 // Build time configurable limits
 
@@ -866,7 +866,7 @@ _memory_allocate_heap(void) {
 	//Get a new heap ID
 	do {
 		heap->id = (++_memory_heap_id);
-		ASSERT_CRASH(heap->id < HEAP_ARRAY_SIZE);
+		ASSERT_CRASH(heap->id < HEAP_ARRAY_SIZE, "Heap buffer overflow");
 		if (_memory_heap_lookup(heap->id))
 			heap->id = 0;
 	} while (!heap->id);
